@@ -12,6 +12,12 @@ Menggunakan 100% binary statis tanpa proses kompilasi pada VPS target, sehingga 
   - VLESS WebSocket HTTP (Port: 80, 8880, 2082) - Path: `/vless-ws`
   - VLESS WebSocket TLS / HTTPS (Port: 443, 8443, 2053, 2083) - Path: `/vless-ws`
   - Mendukung CDN Cloudflare & Direct SNI
+- **Monitoring Bandwidth Real-Time (vnStat)**:
+  - Informasi bandwidth usage langsung di header dashboard menu
+  - Trafik hari ini (Today)
+  - Trafik kemarin (Yesterday)
+  - Total trafik bulan ini (Monthly)
+  - Perintah cepat `vnstat` atau `bandwidth` untuk laporan detail harian/bulanan
 - **Multi-Login IP Limiter**:
   - Deteksi real client IP via HAProxy PROXY Protocol v2
   - Auto-lock akun yang melanggar limit login
@@ -77,6 +83,7 @@ vl
 | Perintah | Deskripsi |
 |---|---|
 | `menu` | Membuka Dashboard Interaktif TUI |
+| `bandwidth` / `vnstat` | Melihat rincian penggunaan bandwidth server |
 | `add-vless` | Membuat akun VLESS baru |
 | `trial-vless` | Membuat akun trial VLESS 1 hari |
 | `del-vless` | Menghapus akun VLESS |

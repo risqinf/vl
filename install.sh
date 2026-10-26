@@ -178,13 +178,13 @@ fi
 
 print_ok "Domain yang digunakan: $DOMAIN"
 
-# 5. Runtime Dependencies
+# 5. Runtime Dependencies (Includes vnstat)
 print_info "Memperbarui paket sistem & menginstal dependensi runtime..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y >/dev/null 2>&1 || true
-apt-get install -y haproxy curl wget jq socat cron net-tools iptables zip unzip python3 psmisc >/dev/null 2>&1 || {
+apt-get install -y haproxy curl wget jq socat cron net-tools iptables zip unzip python3 psmisc vnstat >/dev/null 2>&1 || {
     print_warn "Percobaan pertama apt gagal, mencoba sekali lagi..."
-    apt-get install -y haproxy curl wget jq socat cron net-tools iptables zip unzip python3 psmisc || true
+    apt-get install -y haproxy curl wget jq socat cron net-tools iptables zip unzip python3 psmisc vnstat || true
 }
 
 # Stop conflicting default services if running
@@ -192,13 +192,13 @@ systemctl stop apache2 nginx haproxy 2>/dev/null || true
 systemctl disable apache2 nginx 2>/dev/null || true
 
 # 6. Create System Directories & Compatibility Links
-mkdir -p /etc/vl /etc/vl/ssl /etc/xray /var/log/xray /etc/haproxy /usr/local/bin /usr/sbin /usr/bin
+mkdir -p /etc/vl /etc/vl/ssl /etc/xray /var/log/xray /etc/haproxy /var/lib/vnstat /usr/local/bin /usr/local/sbin /usr/sbin /usr/bin
 if [ ! -d /etc/shvl ] && [ ! -L /etc/shvl ]; then
     ln -sf /etc/vl /etc/shvl
 fi
 
 # 7. Deploy Static Binaries (No Build Time!)
-print_info "Memasang binary statis (Xray Core, VL Core)..."
+print_info "Memasang binary statis (Xray Core, VL Core, vnStat)..."
 
 BIN_SRC="$PROJECT_DIR/bin"
 [ -d "$PROJECT_DIR/bin/amd64" ] && BIN_SRC="$PROJECT_DIR/bin/amd64"
@@ -228,9 +228,19 @@ if [ -f "$BIN_SRC/geosite.dat" ]; then
     cp -f "$BIN_SRC/geosite.dat" /etc/xray/geosite.dat
 fi
 
+# Deploy vnstat binaries as fallback / direct
+if [ -f "$BIN_SRC/vnstat" ]; then
+    cp -f "$BIN_SRC/vnstat" /usr/local/bin/vnstat
+    [ ! -f /usr/bin/vnstat ] && cp -f "$BIN_SRC/vnstat" /usr/bin/vnstat 2>/dev/null || true
+fi
+if [ -f "$BIN_SRC/vnstatd" ]; then
+    cp -f "$BIN_SRC/vnstatd" /usr/local/sbin/vnstatd
+    [ ! -f /usr/sbin/vnstatd ] && cp -f "$BIN_SRC/vnstatd" /usr/sbin/vnstatd 2>/dev/null || true
+fi
+
 # Deploy master CLI
 cp -f "$PROJECT_DIR/scripts/vl" /usr/local/bin/vl
-chmod +x /usr/local/bin/vl /usr/local/bin/vl-core /usr/local/bin/shvl /usr/local/bin/xray 2>/dev/null || true
+chmod +x /usr/local/bin/vl /usr/local/bin/vl-core /usr/local/bin/shvl /usr/local/bin/xray /usr/local/bin/vnstat /usr/local/sbin/vnstatd 2>/dev/null || true
 ln -sf /usr/local/bin/vl /usr/bin/vl 2>/dev/null || true
 
 # Verify binaries
@@ -241,6 +251,7 @@ fi
 print_ok "Binary statis terverifikasi:"
 print_ok "  * Xray Core: $(/usr/local/bin/xray version 2>&1 | head -n 1)"
 print_ok "  * VL Core  : $(/usr/local/bin/vl-core version 2>&1 | head -n 1)"
+print_ok "  * vnStat   : $(/usr/local/bin/vnstat --version 2>&1 | head -n 1)"
 
 # 8. Deploy Configurations
 print_info "Memasang konfigurasi sistem..."
@@ -279,7 +290,7 @@ fi
 
 ln -sf /etc/vl/vl.pem /etc/shvl/shvl.pem 2>/dev/null || true
 
-# 10. Deploy Systemd Service Units
+# 10. Deploy Systemd Service Units & vnStat
 print_info "Memasang unit service systemd..."
 cp -f "$PROJECT_DIR/systemd/xray.service" /etc/systemd/system/xray.service
 cp -f "$PROJECT_DIR/systemd/vl-limiter.service" /etc/systemd/system/vl-limiter.service
@@ -290,8 +301,16 @@ ln -sf /etc/systemd/system/vl-limiter.service /etc/systemd/system/shvl-limiter.s
 ln -sf /etc/systemd/system/vl-xp.service /etc/systemd/system/shvl-xp.service 2>/dev/null || true
 ln -sf /etc/systemd/system/vl-xp.timer /etc/systemd/system/shvl-xp.timer 2>/dev/null || true
 
+# Initialize vnStat monitoring daemon
+mkdir -p /var/lib/vnstat
+NET_IFACE=$(ip -4 route show default 2>/dev/null | awk '{print $5}' | head -n 1)
+[ -z "$NET_IFACE" ] && NET_IFACE="eth0"
+vnstat -u -i "$NET_IFACE" 2>/dev/null || true
+systemctl enable vnstat >/dev/null 2>&1 || true
+systemctl restart vnstat >/dev/null 2>&1 || true
+
 systemctl daemon-reload
-for svc in xray haproxy vl-limiter; do
+for svc in xray haproxy vl-limiter vnstat; do
     systemctl enable "$svc.service" >/dev/null 2>&1 || true
     systemctl restart "$svc.service" >/dev/null 2>&1 || true
 done
@@ -309,7 +328,7 @@ ln -sf /usr/local/bin/renew-cert /usr/bin/renew-cert 2>/dev/null || true
 ln -sf /usr/local/bin/renew-cert /usr/bin/cert 2>/dev/null || true
 
 # Link scripts to /usr/bin
-for sc in add-vless trial-vless del-vless renew-vless list-vless slip-vless cek-vless ban unban recovery reset-quota autokill ceklim xp restart; do
+for sc in add-vless trial-vless del-vless renew-vless list-vless slip-vless cek-vless ban unban recovery reset-quota autokill ceklim xp restart bandwidth vnstat; do
     [ -f "/usr/local/bin/$sc" ] && ln -sf "/usr/local/bin/$sc" "/usr/bin/$sc" 2>/dev/null || true
 done
 
@@ -340,6 +359,7 @@ echo -e "  * ${WHITE}VLESS WebSocket (HTTP)${NC} : 80, 8880, 2082 [Path: /vless-
 echo -e "  * ${WHITE}VLESS WebSocket (TLS)${NC}  : 443, 8443, 2053, 2083 [Path: /vless-ws]"
 echo -e "${CYAN}────────────────────────────────────────────────────────────────${NC}"
 echo -e "  ${BOLD}${YELLOW}FITUR SISTEM:${NC}"
+echo -e "  * Monitoring Bandwidth (vnstat - Hari Ini, Kemarin, Total Bulan Ini)"
 echo -e "  * Multi-login IP Limiter Daemon (5 Menit Cooldown Auto-Unlock)"
 echo -e "  * Notifikasi Bot Telegram otomatis"
 echo -e "  * Daily Auto-Expiry cleaner (Systemd timer)"

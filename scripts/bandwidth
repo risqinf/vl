@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Autoscript VL - Bandwidth Monitor (vnstat)
+# ==============================================================================
+
+CYAN='\033[0;36m'
+PURPLE='\033[0;35m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+clear 2>/dev/null || true
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e " ${BOLD}${PURPLE}            DETAIL PENGGUNAAN BANDWIDTH (VNSTAT)                ${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+vnstat 2>/dev/null || echo "Database vnStat sedang mengumpulkan data lalu lintas..."
+echo ""
+vnstat -d 2>/dev/null || true
+echo ""
+vnstat -m 2>/dev/null || true
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

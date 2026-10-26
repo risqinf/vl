@@ -39,6 +39,26 @@ get_domain() {
     fi
 }
 
+get_traffic() {
+    local iface
+    iface=$(ip -4 route show default 2>/dev/null | awk '{print $5}' | head -n 1)
+    [ -z "$iface" ] && iface="eth0"
+
+    ttoday=$(vnstat -i "$iface" 2>/dev/null | grep "today" | awk '{print $8" "$9}')
+    [ -z "$ttoday" ] && ttoday=$(vnstat -d 2>/dev/null | grep -E "today|$(date +'%Y-%m-%d')" | head -n 1 | awk '{print $8" "$9}')
+    [ -z "$ttoday" ] && ttoday="0.00 B"
+
+    tyest=$(vnstat -i "$iface" 2>/dev/null | grep "yesterday" | awk '{print $8" "$9}')
+    [ -z "$tyest" ] && tyest=$(vnstat -d 2>/dev/null | grep -E "yesterday|$(date -d 'yesterday' +'%Y-%m-%d' 2>/dev/null)" | head -n 1 | awk '{print $8" "$9}')
+    [ -z "$tyest" ] && tyest="0.00 B"
+
+    cur_mon=$(date +"%Y-%m" 2>/dev/null)
+    tmon=$(vnstat -i "$iface" -m 2>/dev/null | grep "$cur_mon" | awk '{print $8" "$9}')
+    [ -z "$tmon" ] && tmon=$(vnstat -m 2>/dev/null | grep "$cur_mon" | awk '{print $8" "$9}')
+    [ -z "$tmon" ] && tmon=$(vnstat -i "$iface" -m 2>/dev/null | grep -E '^[[:space:]]*[0-9]{4}-[0-9]{2}' | head -n 1 | awk '{print $8" "$9}')
+    [ -z "$tmon" ] && tmon="0.00 B"
+}
+
 show_menu() {
     clear
     local DOMAIN=$(get_domain)
@@ -47,6 +67,8 @@ show_menu() {
     local RAM_USED=$(free -m 2>/dev/null | awk '/Mem:/ {print $3}')
     local RAM_TOTAL=$(free -m 2>/dev/null | awk '/Mem:/ {print $2}')
     local UPTIME=$(uptime -p 2>/dev/null | sed 's/up //')
+
+    get_traffic
 
     local ST_XR=$(check_status xray)
     local ST_HA=$(check_status haproxy)
@@ -62,6 +84,10 @@ show_menu() {
     echo -e "  ${WHITE}Host / Domain${NC}: ${GREEN}$DOMAIN${NC}"
     echo -e "  ${WHITE}RAM Usage${NC}   : ${GREEN}${RAM_USED:-0} MB / ${RAM_TOTAL:-0} MB${NC}"
     echo -e "  ${WHITE}Uptime${NC}      : ${GREEN}${UPTIME:-Running}${NC}"
+    echo -e "${CYAN}────────────────────────────────────────────────────────────────${NC}"
+    echo -e "  ${WHITE}TRAFIK HARI INI :${NC} ${GREEN}$ttoday${NC}"
+    echo -e "  ${WHITE}TRAFIK KEMARIN  :${NC} ${YELLOW}$tyest${NC}"
+    echo -e "  ${WHITE}TOTAL BULAN INI :${NC} ${CYAN}$tmon${NC}"
     echo -e "${CYAN}────────────────────────────────────────────────────────────────${NC}"
     echo -e "  ${WHITE}Xray VLESS${NC}  : $ST_XR       |  ${WHITE}HAProxy Mux${NC}   : $ST_HA"
     echo -e "  ${WHITE}IP Limiter${NC}  : $ST_LM (Cooldown 5 Menit Auto-Unlock)"
@@ -84,16 +110,17 @@ show_menu() {
     echo -e "  ${GREEN}[13]${NC} Bersihkan Akun Expired (XP)     ${CYAN}[xp]${NC}"
     echo ""
     echo -e " ${BOLD}${YELLOW}[ SISTEM & PENGATURAN ]${NC}"
-    echo -e "  ${GREEN}[14]${NC} Ganti Domain & Terbitkan SSL    ${CYAN}[domain]${NC}"
-    echo -e "  ${GREEN}[15]${NC} Perbarui Sertifikat SSL         ${CYAN}[renew-cert]${NC}"
-    echo -e "  ${GREEN}[16]${NC} Backup Sistem ke Telegram       ${CYAN}[backup]${NC}"
-    echo -e "  ${GREEN}[17]${NC} Restore Sistem dari Backup      ${CYAN}[restore]${NC}"
-    echo -e "  ${GREEN}[18]${NC} Konfigurasi Bot Telegram        ${CYAN}[telegram]${NC}"
-    echo -e "  ${GREEN}[19]${NC} Restart Semua Service           ${CYAN}[restart]${NC}"
-    echo -e "  ${GREEN}[20]${NC} Reboot VPS"
+    echo -e "  ${GREEN}[14]${NC} Detail Bandwidth (vnstat)       ${CYAN}[vnstat / bandwidth]${NC}"
+    echo -e "  ${GREEN}[15]${NC} Ganti Domain & Terbitkan SSL    ${CYAN}[domain]${NC}"
+    echo -e "  ${GREEN}[16]${NC} Perbarui Sertifikat SSL         ${CYAN}[renew-cert]${NC}"
+    echo -e "  ${GREEN}[17]${NC} Backup Sistem ke Telegram       ${CYAN}[backup]${NC}"
+    echo -e "  ${GREEN}[18]${NC} Restore Sistem dari Backup      ${CYAN}[restore]${NC}"
+    echo -e "  ${GREEN}[19]${NC} Konfigurasi Bot Telegram        ${CYAN}[telegram]${NC}"
+    echo -e "  ${GREEN}[20]${NC} Restart Semua Service           ${CYAN}[restart]${NC}"
+    echo -e "  ${GREEN}[21]${NC} Reboot VPS"
     echo -e "  ${GREEN}[0]${NC}  Keluar"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -ne " ${BOLD}Pilih opsi [0-20]: ${NC}"
+    echo -ne " ${BOLD}Pilih opsi [0-21]: ${NC}"
     read -r opt
 
     case "$opt" in
@@ -149,30 +176,43 @@ show_menu() {
             /usr/local/bin/vl xp
             read -r -p "Tekan [ENTER] untuk kembali..."
             ;;
-        14|domain)
+        14|vnstat|bandwidth)
+            clear
+            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e " ${BOLD}${PURPLE}            DETAIL PENGGUNAAN BANDWIDTH (VNSTAT)                ${NC}"
+            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            vnstat 2>/dev/null || echo "Database vnStat sedang mengumpulkan data lalu lintas..."
+            echo ""
+            vnstat -d 2>/dev/null || true
+            echo ""
+            vnstat -m 2>/dev/null || true
+            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            read -r -p "Tekan [ENTER] untuk kembali..."
+            ;;
+        15|domain)
             /usr/local/bin/vl domain
             ;;
-        15|cert|renew-cert)
+        16|cert|renew-cert)
             /usr/local/bin/renew-cert
             read -r -p "Tekan [ENTER] untuk kembali..."
             ;;
-        16|backup)
+        17|backup)
             /usr/local/bin/vl backup
             read -r -p "Tekan [ENTER] untuk kembali..."
             ;;
-        17|restore)
+        18|restore)
             /usr/local/bin/vl restore
             read -r -p "Tekan [ENTER] untuk kembali..."
             ;;
-        18|telegram|bot)
+        19|telegram|bot)
             /usr/local/bin/vl telegram
             read -r -p "Tekan [ENTER] untuk kembali..."
             ;;
-        19|restart)
+        20|restart)
             /usr/local/bin/restart
             read -r -p "Tekan [ENTER] untuk kembali..."
             ;;
-        20|reboot)
+        21|reboot)
             echo -ne "Yakin ingin reboot VPS? (y/n): "
             read -r ans
             if [[ "$ans" =~ ^[Yy]$ ]]; then
