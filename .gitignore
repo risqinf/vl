@@ -1,0 +1,9 @@
+*.tmp
+*.tmp.*
+*.log
+*.db
+*.pem
+*.crt
+*.key
+*~
+.DS_Store

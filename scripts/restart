@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Autoscript VL - Service Restarter
+# ==============================================================================
+
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+echo -e " ${CYAN}[INFO]${NC} Memulai ulang service Autoscript VL..."
+systemctl restart xray 2>/dev/null || true
+systemctl restart haproxy 2>/dev/null || true
+systemctl restart vl-limiter 2>/dev/null || true
+systemctl restart shvl-limiter 2>/dev/null || true
+
+echo -e " ${GREEN}[OK]${NC} Semua service Autoscript VL berhasil direstart!"

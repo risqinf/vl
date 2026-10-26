@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Autoscript VL - High Performance VLESS WebSocket Manager
+# Engineered for Ubuntu 24.04 LTS & Debian 13
+# ==============================================================================
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+BOLD='\033[1m'
+
+BIN_CORE="/usr/local/bin/vl-core"
+[ ! -x "$BIN_CORE" ] && BIN_CORE="/usr/local/bin/shvl"
+
+filter_vless_slip() {
+    python3 - << 'PYEOF'
+import sys
+
+raw = sys.stdin.read()
+lines = raw.splitlines()
+out = []
+skip = False
+
+for line in lines:
+    if "INFORMASI AKUN PREMIUM VLESS MULTI-PATH" in line:
+        line = line.replace("INFORMASI AKUN PREMIUM VLESS MULTI-PATH", "INFORMASI AKUN AUTOSCRIPT VL (VLESS WS)")
+    if "HttpUpgrade Path" in line or "XHTTP Path" in line:
+        continue
+    if "WS Path" in line:
+        line = "  WS Path          : /vless-ws"
+    if "Network / Proto" in line:
+        line = "  Network / Proto  : WebSocket (ws)"
+    if "3. VLESS HttpUpgrade" in line:
+        skip = True
+    if skip:
+        continue
+    out.append(line)
+
+out.append("\033[0;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m")
+print("\n".join(out))
+PYEOF
+}
+
+show_help() {
+    echo -e "${CYAN}=================================================================${NC}"
+    echo -e " ${BOLD}${GREEN}                AUTOSCRIPT VL - VLESS WS STACK                 ${NC}"
+    echo -e " ${BOLD}${CYAN}            Engineered for Ubuntu 24.04 & Debian 13             ${NC}"
+    echo -e "${CYAN}=================================================================${NC}"
+    echo ""
+    echo -e "Penggunaan: vl [perintah] [argumen...]"
+    echo ""
+    echo -e "${BOLD}${YELLOW}Manajemen Akun VLESS (WS Non-TLS & WS TLS):${NC}"
+    echo -e "  add-vless [u] [durasi] [lip] [quota]   Buat akun VLESS baru"
+    echo -e "  trial-vless                            Buat akun trial VLESS (1 hari)"
+    echo -e "  del-vless [username]                   Hapus akun VLESS"
+    echo -e "  renew-vless [username] [durasi]        Perpanjang masa aktif VLESS"
+    echo -e "  list-vless                             Tampilkan daftar akun VLESS"
+    echo -e "  slip-vless [username]                  Cetak link & konfigurasi VLESS"
+    echo ""
+    echo -e "${BOLD}${YELLOW}Manajemen Keamanan & Kuota:${NC}"
+    echo -e "  ban [username] [5m|perm|durasi]        Kunci/Ban akun pengguna"
+    echo -e "  unban [username]                       Buka kunci akun pengguna"
+    echo -e "  reset-quota [username]                 Reset akumulasi pemakaian data ke 0 B"
+    echo -e "  recovery [username] [durasi]           Pulihkan akun expired"
+    echo ""
+    echo -e "${BOLD}${YELLOW}Sistem & Operasional:${NC}"
+    echo -e "  limit [daemon|run]                     Jalankan Multi-login IP Limiter"
+    echo -e "  xp                                     Bersihkan akun yang telah expired"
+    echo -e "  domain [new.domain]                    Ganti domain & terbitkan SSL"
+    echo -e "  cert [issue|renew|check]               Manajemen sertifikat SSL"
+    echo -e "  backup                                 Backup sistem ke Telegram"
+    echo -e "  restore [file_path]                    Pulihkan sistem dari backup"
+    echo -e "  telegram                               Konfigurasi Bot Telegram"
+    echo -e "  restart                                Restart semua service"
+    echo -e "  menu                                   Buka Dashboard TUI"
+    echo ""
+}
+
+CMD="$1"
+
+if [ -z "$CMD" ]; then
+    if [ -x /usr/local/bin/menu ]; then
+        exec /usr/local/bin/menu
+    else
+        show_help
+        exit 0
+    fi
+fi
+
+case "$CMD" in
+    -h|--help|help)
+        show_help
+        exit 0
+        ;;
+    menu)
+        exec /usr/local/bin/menu
+        ;;
+    add-vless|trial-vless|slip-vless)
+        if [ "$#" -ge 2 ] || [ "$CMD" = "trial-vless" ]; then
+            "$BIN_CORE" "$@" | filter_vless_slip
+        else
+            "$BIN_CORE" "$@"
+        fi
+        ;;
+    cek-vless|cek)
+        shift
+        exec /usr/local/bin/cek-vless "$@"
+        ;;
+    cert)
+        shift
+        exec /usr/local/bin/renew-cert "$@"
+        ;;
+    restart)
+        shift
+        exec /usr/local/bin/restart "$@"
+        ;;
+    *)
+        exec "$BIN_CORE" "$@"
+        ;;
+esac
