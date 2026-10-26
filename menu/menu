@@ -44,18 +44,22 @@ get_traffic() {
     iface=$(ip -4 route show default 2>/dev/null | awk '{print $5}' | head -n 1)
     [ -z "$iface" ] && iface="eth0"
 
-    ttoday=$(vnstat -i "$iface" 2>/dev/null | grep "today" | awk '{print $8" "$9}')
-    [ -z "$ttoday" ] && ttoday=$(vnstat -d 2>/dev/null | grep -E "today|$(date +'%Y-%m-%d')" | head -n 1 | awk '{print $8" "$9}')
+    local vn_bin="/usr/bin/vnstat"
+    [ ! -x "$vn_bin" ] && vn_bin="/usr/local/bin/vnstat"
+    [ ! -x "$vn_bin" ] && vn_bin="vnstat"
+
+    ttoday=$("$vn_bin" -i "$iface" 2>/dev/null | grep "today" | awk '{print $8" "$9}')
+    [ -z "$ttoday" ] && ttoday=$("$vn_bin" -d 2>/dev/null | grep -E "today|$(date +'%Y-%m-%d')" | head -n 1 | awk '{print $8" "$9}')
     [ -z "$ttoday" ] && ttoday="0.00 B"
 
-    tyest=$(vnstat -i "$iface" 2>/dev/null | grep "yesterday" | awk '{print $8" "$9}')
-    [ -z "$tyest" ] && tyest=$(vnstat -d 2>/dev/null | grep -E "yesterday|$(date -d 'yesterday' +'%Y-%m-%d' 2>/dev/null)" | head -n 1 | awk '{print $8" "$9}')
+    tyest=$("$vn_bin" -i "$iface" 2>/dev/null | grep "yesterday" | awk '{print $8" "$9}')
+    [ -z "$tyest" ] && tyest=$("$vn_bin" -d 2>/dev/null | grep -E "yesterday|$(date -d 'yesterday' +'%Y-%m-%d' 2>/dev/null)" | head -n 1 | awk '{print $8" "$9}')
     [ -z "$tyest" ] && tyest="0.00 B"
 
     cur_mon=$(date +"%Y-%m" 2>/dev/null)
-    tmon=$(vnstat -i "$iface" -m 2>/dev/null | grep "$cur_mon" | awk '{print $8" "$9}')
-    [ -z "$tmon" ] && tmon=$(vnstat -m 2>/dev/null | grep "$cur_mon" | awk '{print $8" "$9}')
-    [ -z "$tmon" ] && tmon=$(vnstat -i "$iface" -m 2>/dev/null | grep -E '^[[:space:]]*[0-9]{4}-[0-9]{2}' | head -n 1 | awk '{print $8" "$9}')
+    tmon=$("$vn_bin" -i "$iface" -m 2>/dev/null | grep "$cur_mon" | awk '{print $8" "$9}')
+    [ -z "$tmon" ] && tmon=$("$vn_bin" -m 2>/dev/null | grep "$cur_mon" | awk '{print $8" "$9}')
+    [ -z "$tmon" ] && tmon=$("$vn_bin" -i "$iface" -m 2>/dev/null | grep -E '^[[:space:]]*[0-9]{4}-[0-9]{2}' | head -n 1 | awk '{print $8" "$9}')
     [ -z "$tmon" ] && tmon="0.00 B"
 }
 
@@ -110,17 +114,18 @@ show_menu() {
     echo -e "  ${GREEN}[13]${NC} Bersihkan Akun Expired (XP)     ${CYAN}[xp]${NC}"
     echo ""
     echo -e " ${BOLD}${YELLOW}[ SISTEM & PENGATURAN ]${NC}"
-    echo -e "  ${GREEN}[14]${NC} Detail Bandwidth (vnstat)       ${CYAN}[vnstat / bandwidth]${NC}"
+    echo -e "  ${GREEN}[14]${NC} Detail Bandwidth (vnstat)       ${CYAN}[bandwidth]${NC}"
     echo -e "  ${GREEN}[15]${NC} Ganti Domain & Terbitkan SSL    ${CYAN}[domain]${NC}"
     echo -e "  ${GREEN}[16]${NC} Perbarui Sertifikat SSL         ${CYAN}[renew-cert]${NC}"
     echo -e "  ${GREEN}[17]${NC} Backup Sistem ke Telegram       ${CYAN}[backup]${NC}"
     echo -e "  ${GREEN}[18]${NC} Restore Sistem dari Backup      ${CYAN}[restore]${NC}"
     echo -e "  ${GREEN}[19]${NC} Konfigurasi Bot Telegram        ${CYAN}[telegram]${NC}"
     echo -e "  ${GREEN}[20]${NC} Restart Semua Service           ${CYAN}[restart]${NC}"
-    echo -e "  ${GREEN}[21]${NC} Reboot VPS"
+    echo -e "  ${GREEN}[21]${NC} Update Autoscript VL            ${CYAN}[update]${NC}"
+    echo -e "  ${GREEN}[22]${NC} Reboot VPS"
     echo -e "  ${GREEN}[0]${NC}  Keluar"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -ne " ${BOLD}Pilih opsi [0-21]: ${NC}"
+    echo -ne " ${BOLD}Pilih opsi [0-22]: ${NC}"
     read -r opt
 
     case "$opt" in
@@ -176,17 +181,12 @@ show_menu() {
             /usr/local/bin/vl xp
             read -r -p "Tekan [ENTER] untuk kembali..."
             ;;
-        14|vnstat|bandwidth)
-            clear
-            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            echo -e " ${BOLD}${PURPLE}            DETAIL PENGGUNAAN BANDWIDTH (VNSTAT)                ${NC}"
-            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            vnstat 2>/dev/null || echo "Database vnStat sedang mengumpulkan data lalu lintas..."
-            echo ""
-            vnstat -d 2>/dev/null || true
-            echo ""
-            vnstat -m 2>/dev/null || true
-            echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        14|vnstat|bandwidth|bw)
+            if [ -x /usr/local/bin/bandwidth ]; then
+                /usr/local/bin/bandwidth
+            elif [ -x /usr/bin/bandwidth ]; then
+                /usr/bin/bandwidth
+            fi
             read -r -p "Tekan [ENTER] untuk kembali..."
             ;;
         15|domain)
@@ -212,7 +212,12 @@ show_menu() {
             /usr/local/bin/restart
             read -r -p "Tekan [ENTER] untuk kembali..."
             ;;
-        21|reboot)
+        21|update)
+            echo -e "${CYAN}[INFO] Mengunduh dan memperbarui Autoscript VL ke commit terbaru...${NC}"
+            bash <(curl -fsSL https://raw.githubusercontent.com/risqinf/vl/main/install.sh)
+            read -r -p "Tekan [ENTER] untuk kembali..."
+            ;;
+        22|reboot)
             echo -ne "Yakin ingin reboot VPS? (y/n): "
             read -r ans
             if [[ "$ans" =~ ^[Yy]$ ]]; then

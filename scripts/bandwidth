@@ -3,18 +3,42 @@
 # Autoscript VL - Bandwidth Monitor (vnstat)
 # ==============================================================================
 
+# Loop recursion guard
+if [ -n "$_BANDWIDTH_RUNNING" ]; then
+    exit 0
+fi
+export _BANDWIDTH_RUNNING=1
+
 CYAN='\033[0;36m'
 PURPLE='\033[0;35m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+# Find genuine vnstat ELF binary
+VNSTAT_EXEC=""
+if [ -x /usr/bin/vnstat ] && [ ! -L /usr/bin/vnstat ]; then
+    VNSTAT_EXEC="/usr/bin/vnstat"
+elif [ -x /usr/local/bin/vnstat ] && [ ! -L /usr/local/bin/vnstat ]; then
+    VNSTAT_EXEC="/usr/local/bin/vnstat"
+elif [ -x /usr/bin/vnstat ]; then
+    VNSTAT_EXEC="/usr/bin/vnstat"
+elif [ -x /usr/local/bin/vnstat ]; then
+    VNSTAT_EXEC="/usr/local/bin/vnstat"
+fi
+
 clear 2>/dev/null || true
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e " ${BOLD}${PURPLE}            DETAIL PENGGUNAAN BANDWIDTH (VNSTAT)                ${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-vnstat 2>/dev/null || echo "Database vnStat sedang mengumpulkan data lalu lintas..."
-echo ""
-vnstat -d 2>/dev/null || true
-echo ""
-vnstat -m 2>/dev/null || true
+
+if [ -n "$VNSTAT_EXEC" ]; then
+    "$VNSTAT_EXEC" 2>/dev/null || echo "Database vnStat sedang mengumpulkan data lalu lintas..."
+    echo ""
+    "$VNSTAT_EXEC" -d 2>/dev/null || true
+    echo ""
+    "$VNSTAT_EXEC" -m 2>/dev/null || true
+else
+    echo "Binary vnStat belum terpasang atau sedang tidak aktif."
+fi
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+

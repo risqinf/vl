@@ -100,6 +100,7 @@ vl
 | `domain` | Mengganti domain server |
 | `renew-cert` | Memperbarui sertifikat SSL |
 | `restart` | Memulai ulang seluruh layanan Autoscript VL |
+| `vl update` | Memperbarui Autoscript VL ke commit terbaru dari GitHub |
 
 ---
 

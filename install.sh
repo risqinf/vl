@@ -53,7 +53,7 @@ if [[ "$OS_ID" != "ubuntu" && "$OS_ID" != "debian" ]]; then
     print_warn "Distribusi '$OS_ID' terdeteksi. Script dioptimalkan untuk Ubuntu 24.04 dan Debian 13."
 fi
 
-# 3. Detect Source Directory
+# 3. Detect Source Directory & Flags
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 PROJECT_DIR=""
 
@@ -61,16 +61,6 @@ is_valid_dir() {
     local d="$1"
     [ -n "$d" ] && [ -d "$d" ] && [ -f "$d/conf/haproxy.cfg" ] && [ -f "$d/install.sh" ]
 }
-
-if is_valid_dir "$SCRIPT_DIR"; then
-    PROJECT_DIR="$SCRIPT_DIR"
-elif is_valid_dir "$(pwd)"; then
-    PROJECT_DIR="$(pwd)"
-elif is_valid_dir "/root/vl"; then
-    PROJECT_DIR="/root/vl"
-elif is_valid_dir "$HOME/vl"; then
-    PROJECT_DIR="$HOME/vl"
-fi
 
 # Parse CLI Flags
 PARAM_DOMAIN=""
@@ -94,52 +84,79 @@ done
 
 print_header
 
-# If local source not found, download package from GitHub
-if [ -z "$PROJECT_DIR" ] && [ "$FORCE_LOCAL" -eq 0 ]; then
-    print_info "Mengunduh paket instalasi Autoscript VL dari https://github.com/${DEFAULT_REPO}..."
-    mkdir -p /root/vl
-    local_archive="/tmp/vl.tar.gz"
+# Resolution of source package:
+# Jika --local: gunakan direktori lokal.
+# Default (install baru / update): SELALU download commit terbaru dari GitHub & replace /root/vl!
+if [ "$FORCE_LOCAL" -eq 1 ]; then
+    if is_valid_dir "$SCRIPT_DIR"; then
+        PROJECT_DIR="$SCRIPT_DIR"
+    elif is_valid_dir "$(pwd)"; then
+        PROJECT_DIR="$(pwd)"
+    elif is_valid_dir "/root/vl"; then
+        PROJECT_DIR="/root/vl"
+    elif is_valid_dir "$HOME/vl"; then
+        PROJECT_DIR="$HOME/vl"
+    fi
+
+    if ! is_valid_dir "$PROJECT_DIR"; then
+        print_err "Direktori project lokal tidak valid atau file konfigurasi tidak lengkap!"
+        exit 1
+    fi
+    print_ok "Mode lokal aktif. Menggunakan source: $PROJECT_DIR"
+else
+    print_info "Memeriksa dan mengunduh commit terbaru Autoscript VL dari https://github.com/${DEFAULT_REPO} (${DEFAULT_BRANCH})..."
+
+    LATEST_COMMIT=$(curl -fsSL -H 'Cache-Control: no-cache' "https://api.github.com/repos/${DEFAULT_REPO}/commits/${DEFAULT_BRANCH}" 2>/dev/null | grep '"sha"' | head -n 1 | cut -d '"' -f 4)
+    if [ -n "$LATEST_COMMIT" ]; then
+        print_ok "Commit terbaru terdeteksi: ${LATEST_COMMIT:0:8}"
+    fi
+
+    TMP_PKG_DIR="/tmp/vl_install_$$"
+    rm -rf "$TMP_PKG_DIR"
+    mkdir -p "$TMP_PKG_DIR"
+
+    local_archive="/tmp/vl_${DEFAULT_BRANCH}_$$.tar.gz"
     rm -f "$local_archive"
     download_ok=0
 
-    if curl -fsSL -o "$local_archive" "https://github.com/${DEFAULT_REPO}/archive/refs/heads/${DEFAULT_BRANCH}.tar.gz" 2>/dev/null; then
+    if curl -fsSL -H 'Cache-Control: no-cache' -o "$local_archive" "https://github.com/${DEFAULT_REPO}/archive/refs/heads/${DEFAULT_BRANCH}.tar.gz?t=$(date +%s)" 2>/dev/null; then
         download_ok=1
-    elif wget -qO "$local_archive" "https://github.com/${DEFAULT_REPO}/archive/refs/heads/${DEFAULT_BRANCH}.tar.gz" 2>/dev/null; then
+    elif wget -q --no-cache -O "$local_archive" "https://github.com/${DEFAULT_REPO}/archive/refs/heads/${DEFAULT_BRANCH}.tar.gz?t=$(date +%s)" 2>/dev/null; then
         download_ok=1
     fi
 
     if [ "$download_ok" -eq 1 ] && [ -s "$local_archive" ]; then
-        tar -xzf "$local_archive" -C /root/vl --strip-components=1 2>/dev/null || true
+        tar -xzf "$local_archive" -C "$TMP_PKG_DIR" --strip-components=1 2>/dev/null || true
         rm -f "$local_archive"
-        if is_valid_dir "/root/vl"; then
-            PROJECT_DIR="/root/vl"
-        fi
     fi
 
-    # Fallback to git clone if tarball failed or files incomplete
-    if ! is_valid_dir "$PROJECT_DIR"; then
+    # Fallback git clone jika tarball tidak lengkap
+    if ! is_valid_dir "$TMP_PKG_DIR"; then
         print_warn "Download arsip tar.gz tidak lengkap, mencoba fallback git clone..."
         if ! command -v git >/dev/null 2>&1; then
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -y >/dev/null 2>&1 || true
             apt-get install -y git >/dev/null 2>&1 || true
         fi
-        rm -rf /root/vl
-        if git clone --depth 1 "https://github.com/${DEFAULT_REPO}.git" /root/vl 2>/dev/null; then
-            if is_valid_dir "/root/vl"; then
-                PROJECT_DIR="/root/vl"
-            fi
-        fi
+        rm -rf "$TMP_PKG_DIR"
+        git clone --depth 1 "https://github.com/${DEFAULT_REPO}.git" "$TMP_PKG_DIR" 2>/dev/null || true
     fi
+
+    if ! is_valid_dir "$TMP_PKG_DIR"; then
+        print_err "Gagal mengunduh paket terbaru dari https://github.com/${DEFAULT_REPO}!"
+        exit 1
+    fi
+
+    print_info "Melakukan replace instalasi lama dengan file commit terbaru di /root/vl..."
+    mkdir -p /root/vl
+    rm -rf /root/vl/bin /root/vl/conf /root/vl/menu /root/vl/scripts /root/vl/systemd
+    cp -a -f "$TMP_PKG_DIR/." /root/vl/
+    rm -rf "$TMP_PKG_DIR"
+
+    PROJECT_DIR="/root/vl"
 fi
 
-if ! is_valid_dir "$PROJECT_DIR"; then
-    print_err "Direktori project Autoscript VL tidak valid atau file konfigurasi tidak lengkap!"
-    print_err "Pastikan repositori https://github.com/${DEFAULT_REPO} dapat diakses."
-    exit 1
-fi
-
-print_ok "Direktori project terdeteksi: $PROJECT_DIR"
+print_ok "Direktori project siap: $PROJECT_DIR"
 
 # 4. Input Domain
 DOMAIN="$PARAM_DOMAIN"
@@ -178,18 +195,89 @@ fi
 
 print_ok "Domain yang digunakan: $DOMAIN"
 
-# 5. Runtime Dependencies (Includes vnstat)
+# 5. Runtime Dependencies & Firewall Configuration
 print_info "Memperbarui paket sistem & menginstal dependensi runtime..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y >/dev/null 2>&1 || true
-apt-get install -y haproxy curl wget jq socat cron net-tools iptables zip unzip python3 psmisc vnstat >/dev/null 2>&1 || {
+apt-get install -y haproxy curl wget jq socat cron net-tools iptables ufw zip unzip python3 psmisc vnstat >/dev/null 2>&1 || {
     print_warn "Percobaan pertama apt gagal, mencoba sekali lagi..."
-    apt-get install -y haproxy curl wget jq socat cron net-tools iptables zip unzip python3 psmisc vnstat || true
+    apt-get install -y haproxy curl wget jq socat cron net-tools iptables ufw zip unzip python3 psmisc vnstat || true
 }
 
 # Stop conflicting default services if running
-systemctl stop apache2 nginx haproxy 2>/dev/null || true
+systemctl stop apache2 nginx haproxy xray vl-limiter shvl-limiter vnstat 2>/dev/null || true
 systemctl disable apache2 nginx 2>/dev/null || true
+
+# Setup Firewall: Pastikan port VPN & ACME certificate dibuka (UFW, IPTables, IP6Tables, Firewalld)
+setup_firewall() {
+    print_info "Mengonfigurasi port firewall (UFW, IPTables, Firewalld)..."
+    local ssh_port
+    ssh_port=$(grep -E "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -n 1)
+    [ -z "$ssh_port" ] && ssh_port=22
+
+    local tcp_ports=("$ssh_port" 22 80 443 8880 2082 8443 2053 2083 2087 2096)
+    local udp_ports=(80 443)
+
+    # 1. UFW
+    if command -v ufw >/dev/null 2>&1; then
+        ufw allow "$ssh_port/tcp" >/dev/null 2>&1 || true
+        ufw allow 22/tcp >/dev/null 2>&1 || true
+        for p in "${tcp_ports[@]}"; do
+            ufw allow "$p/tcp" >/dev/null 2>&1 || true
+        done
+        for p in "${udp_ports[@]}"; do
+            ufw allow "$p/udp" >/dev/null 2>&1 || true
+        done
+        if ufw status 2>/dev/null | grep -q "Status: active"; then
+            ufw reload >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # 2. IPTables (IPv4)
+    if command -v iptables >/dev/null 2>&1; then
+        iptables -I INPUT -p tcp --dport "$ssh_port" -j ACCEPT 2>/dev/null || true
+        iptables -I INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null || true
+        for p in "${tcp_ports[@]}"; do
+            iptables -I INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || true
+        done
+        for p in "${udp_ports[@]}"; do
+            iptables -I INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || true
+        done
+    fi
+
+    # 3. IP6Tables (IPv6)
+    if command -v ip6tables >/dev/null 2>&1; then
+        ip6tables -I INPUT -p tcp --dport "$ssh_port" -j ACCEPT 2>/dev/null || true
+        ip6tables -I INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null || true
+        for p in "${tcp_ports[@]}"; do
+            ip6tables -I INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || true
+        done
+        for p in "${udp_ports[@]}"; do
+            ip6tables -I INPUT -p udp --dport "$p" -j ACCEPT 2>/dev/null || true
+        done
+    fi
+
+    # 4. Firewalld
+    if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld 2>/dev/null; then
+        firewall-cmd --zone=public --add-port="$ssh_port/tcp" --permanent >/dev/null 2>&1 || true
+        for p in "${tcp_ports[@]}"; do
+            firewall-cmd --zone=public --add-port="$p/tcp" --permanent >/dev/null 2>&1 || true
+        done
+        for p in "${udp_ports[@]}"; do
+            firewall-cmd --zone=public --add-port="$p/udp" --permanent >/dev/null 2>&1 || true
+        done
+        firewall-cmd --reload >/dev/null 2>&1 || true
+    fi
+
+    # Persist iptables rules if possible
+    if command -v netfilter-persistent >/dev/null 2>&1; then
+        netfilter-persistent save >/dev/null 2>&1 || true
+    elif [ -d /etc/iptables ]; then
+        iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+        ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true
+    fi
+}
+setup_firewall
 
 # 6. Create System Directories & Compatibility Links
 mkdir -p /etc/vl /etc/vl/ssl /etc/xray /var/log/xray /etc/haproxy /var/lib/vnstat /usr/local/bin /usr/local/sbin /usr/sbin /usr/bin
@@ -199,6 +287,14 @@ fi
 
 # 7. Deploy Static Binaries (No Build Time!)
 print_info "Memasang binary statis (Xray Core, VL Core, vnStat)..."
+
+# Bersihkan wrapper/symlink lama yang looping jika pernah terpasang
+if [ -L /usr/local/bin/vnstat ] || grep -q "DETAIL PENGGUNAAN BANDWIDTH" /usr/local/bin/vnstat 2>/dev/null; then
+    rm -f /usr/local/bin/vnstat
+fi
+if [ -L /usr/bin/vnstat ] || grep -q "DETAIL PENGGUNAAN BANDWIDTH" /usr/bin/vnstat 2>/dev/null; then
+    rm -f /usr/bin/vnstat
+fi
 
 BIN_SRC="$PROJECT_DIR/bin"
 [ -d "$PROJECT_DIR/bin/amd64" ] && BIN_SRC="$PROJECT_DIR/bin/amd64"
@@ -228,19 +324,21 @@ if [ -f "$BIN_SRC/geosite.dat" ]; then
     cp -f "$BIN_SRC/geosite.dat" /etc/xray/geosite.dat
 fi
 
-# Deploy vnstat binaries as fallback / direct
+# Deploy vnstat genuine ELF binaries directly
 if [ -f "$BIN_SRC/vnstat" ]; then
-    cp -f "$BIN_SRC/vnstat" /usr/local/bin/vnstat
-    [ ! -f /usr/bin/vnstat ] && cp -f "$BIN_SRC/vnstat" /usr/bin/vnstat 2>/dev/null || true
+    cp -f "$BIN_SRC/vnstat" /usr/bin/vnstat 2>/dev/null || true
+    cp -f "$BIN_SRC/vnstat" /usr/local/bin/vnstat 2>/dev/null || true
+    chmod +x /usr/bin/vnstat /usr/local/bin/vnstat 2>/dev/null || true
 fi
 if [ -f "$BIN_SRC/vnstatd" ]; then
-    cp -f "$BIN_SRC/vnstatd" /usr/local/sbin/vnstatd
-    [ ! -f /usr/sbin/vnstatd ] && cp -f "$BIN_SRC/vnstatd" /usr/sbin/vnstatd 2>/dev/null || true
+    cp -f "$BIN_SRC/vnstatd" /usr/sbin/vnstatd 2>/dev/null || true
+    cp -f "$BIN_SRC/vnstatd" /usr/local/sbin/vnstatd 2>/dev/null || true
+    chmod +x /usr/sbin/vnstatd /usr/local/sbin/vnstatd 2>/dev/null || true
 fi
 
 # Deploy master CLI
 cp -f "$PROJECT_DIR/scripts/vl" /usr/local/bin/vl
-chmod +x /usr/local/bin/vl /usr/local/bin/vl-core /usr/local/bin/shvl /usr/local/bin/xray /usr/local/bin/vnstat /usr/local/sbin/vnstatd 2>/dev/null || true
+chmod +x /usr/local/bin/vl /usr/local/bin/vl-core /usr/local/bin/shvl /usr/local/bin/xray 2>/dev/null || true
 ln -sf /usr/local/bin/vl /usr/bin/vl 2>/dev/null || true
 
 # Verify binaries
@@ -251,7 +349,7 @@ fi
 print_ok "Binary statis terverifikasi:"
 print_ok "  * Xray Core: $(/usr/local/bin/xray version 2>&1 | head -n 1)"
 print_ok "  * VL Core  : $(/usr/local/bin/vl-core version 2>&1 | head -n 1)"
-print_ok "  * vnStat   : $(/usr/local/bin/vnstat --version 2>&1 | head -n 1)"
+print_ok "  * vnStat   : $(/usr/bin/vnstat --version 2>&1 | head -n 1)"
 
 # 8. Deploy Configurations
 print_info "Memasang konfigurasi sistem..."
@@ -305,7 +403,7 @@ ln -sf /etc/systemd/system/vl-xp.timer /etc/systemd/system/shvl-xp.timer 2>/dev/
 mkdir -p /var/lib/vnstat
 NET_IFACE=$(ip -4 route show default 2>/dev/null | awk '{print $5}' | head -n 1)
 [ -z "$NET_IFACE" ] && NET_IFACE="eth0"
-vnstat -u -i "$NET_IFACE" 2>/dev/null || true
+/usr/bin/vnstat -u -i "$NET_IFACE" 2>/dev/null || vnstat -u -i "$NET_IFACE" 2>/dev/null || true
 systemctl enable vnstat >/dev/null 2>&1 || true
 systemctl restart vnstat >/dev/null 2>&1 || true
 
@@ -327,8 +425,8 @@ ln -sf /usr/local/bin/renew-cert /usr/local/bin/cert 2>/dev/null || true
 ln -sf /usr/local/bin/renew-cert /usr/bin/renew-cert 2>/dev/null || true
 ln -sf /usr/local/bin/renew-cert /usr/bin/cert 2>/dev/null || true
 
-# Link scripts to /usr/bin
-for sc in add-vless trial-vless del-vless renew-vless list-vless slip-vless cek-vless ban unban recovery reset-quota autokill ceklim xp restart bandwidth vnstat; do
+# Link scripts to /usr/bin (vnstat is excluded to keep the genuine ELF binary intact)
+for sc in add-vless trial-vless del-vless renew-vless list-vless slip-vless cek-vless ban unban recovery reset-quota autokill ceklim xp restart bandwidth backup restore domain telegram limit; do
     [ -f "/usr/local/bin/$sc" ] && ln -sf "/usr/local/bin/$sc" "/usr/bin/$sc" 2>/dev/null || true
 done
 

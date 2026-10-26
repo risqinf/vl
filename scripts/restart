@@ -12,5 +12,6 @@ systemctl restart xray 2>/dev/null || true
 systemctl restart haproxy 2>/dev/null || true
 systemctl restart vl-limiter 2>/dev/null || true
 systemctl restart shvl-limiter 2>/dev/null || true
+systemctl restart vnstat 2>/dev/null || true
 
 echo -e " ${GREEN}[OK]${NC} Semua service Autoscript VL berhasil direstart!"

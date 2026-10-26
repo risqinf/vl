@@ -74,6 +74,8 @@ show_help() {
     echo -e "  restore [file_path]                    Pulihkan sistem dari backup"
     echo -e "  telegram                               Konfigurasi Bot Telegram"
     echo -e "  restart                                Restart semua service"
+    echo -e "  bandwidth                              Lihat statistik penggunaan bandwidth (vnstat)"
+    echo -e "  update                                 Update script ke commit terbaru dari GitHub"
     echo -e "  menu                                   Buka Dashboard TUI"
     echo ""
 }
@@ -115,6 +117,22 @@ case "$CMD" in
     restart)
         shift
         exec /usr/local/bin/restart "$@"
+        ;;
+    bandwidth|vnstat)
+        shift
+        if [ -x /usr/local/bin/bandwidth ]; then
+            exec /usr/local/bin/bandwidth "$@"
+        elif [ -x /usr/bin/bandwidth ]; then
+            exec /usr/bin/bandwidth "$@"
+        elif [ -x "$(dirname "${BASH_SOURCE[0]}")/bandwidth" ]; then
+            exec "$(dirname "${BASH_SOURCE[0]}")/bandwidth" "$@"
+        fi
+        ;;
+    update)
+        shift
+        echo -e "${CYAN}[INFO] Memperbarui Autoscript VL ke commit terbaru...${NC}"
+        bash <(curl -fsSL https://raw.githubusercontent.com/risqinf/vl/main/install.sh) "$@"
+        exit 0
         ;;
     *)
         exec "$BIN_CORE" "$@"
